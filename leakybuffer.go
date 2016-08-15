@@ -51,6 +51,7 @@ func (lb *LeakyBuffer) reader() {
 
 	readbuf := make([]byte, 1<<16)
 	buf := make([]byte, 0, lb.bufSize)
+	lbuf := 0
 	lb.recycle <- make([]byte, 0, lb.bufSize)
 
 	for {
@@ -58,20 +59,17 @@ func (lb *LeakyBuffer) reader() {
 		case <-lb.stop:
 			return
 		default:
-			var bytes int
-			var err error
+			bytes, err := lb.in.Read(readbuf)
 
-			if len(buf) > 0 {
-				lb.submit <- buf
-				bytes, err = lb.in.Read(readbuf)
+			if lbuf > 0 {
 				buf = <-lb.unsubmit
-			} else {
-				bytes, err = lb.in.Read(readbuf)
+				lbuf = len(buf)
 			}
 
-			if lb.bufSize-len(buf) >= bytes {
+			if lb.bufSize-lbuf >= bytes {
 				buf = append(buf, readbuf[0:bytes]...)
-			} else {
+				lbuf = len(buf)
+			} else if bytes > 0 {
 				// we lose the contents of readbuf
 				lb.log.Printf("warn: dropped %d bytes", bytes)
 			}
@@ -83,6 +81,10 @@ func (lb *LeakyBuffer) reader() {
 				}
 				lb.write <- buf
 				return
+			}
+
+			if lbuf > 0 {
+				lb.submit <- buf
 			}
 		}
 	}
